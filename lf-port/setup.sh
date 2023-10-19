@@ -1,0 +1,1 @@
+export PATH=/home/zekailin00/Desktop/lingua-franca/bin:/home/zekailin00/Desktop/lingua-franca/bin:/home/zekailin00/Downloads/1.3.261.1/x86_64/bin:/home/zekailin00/Downloads/1.3.261.1/x86_64/bin:/home/zekailin00/mambaforge/bin:/home/zekailin00/mambaforge/condabin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin

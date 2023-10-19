@@ -1,0 +1,3 @@
+/home/zekailin00/Desktop/PhysX/physx/snippets/snippethelloworld/lf-port/c-test/build/CMakeFiles/test.dir
+/home/zekailin00/Desktop/PhysX/physx/snippets/snippethelloworld/lf-port/c-test/build/CMakeFiles/edit_cache.dir
+/home/zekailin00/Desktop/PhysX/physx/snippets/snippethelloworld/lf-port/c-test/build/CMakeFiles/rebuild_cache.dir

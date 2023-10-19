@@ -1,0 +1,270 @@
+target Cpp {
+  cmake-include: "Hello.cmake"
+};
+
+// public preamble {=
+//   #define PX_PHYSX_STATIC_LIB
+//   #include "SnippetRender.h"
+//   #include "SnippetCamera.h"
+//   #include "PxPhysicsAPI.h"
+//   #define PVD_HOST "127.0.0.1"
+//   using namespace physx;
+
+//   extern PxDefaultAllocator	      	gAllocator;
+//   extern PxDefaultErrorCallback	    gErrorCallback;
+//   extern PxFoundation*	        	 	gFoundation;
+//   extern PxPhysics*		           		gPhysics;
+//   extern PxDefaultCpuDispatcher*	  gDispatcher;
+//   extern PxScene*			           		gScene;
+//   extern PxMaterial*		        		gMaterial;
+//   extern PxPvd*			            		gPvd;
+  
+//   extern Snippets::Camera* sCamera;
+// =}
+
+reactor PhysxDriver {
+  private preamble {=
+    #define PX_PHYSX_STATIC_LIB
+    #include "SnippetRender.h"
+    #include "SnippetCamera.h"
+    #include "PxPhysicsAPI.h"
+    #define PVD_HOST "127.0.0.1"
+    using namespace physx;
+  
+    static PxDefaultAllocator	      	gAllocator;
+    static PxDefaultErrorCallback	    gErrorCallback;
+    static PxFoundation*	        	 	gFoundation = NULL;
+    static PxPhysics*		           		gPhysics	= NULL;
+    static PxDefaultCpuDispatcher*	  gDispatcher = NULL;
+    static PxScene*			           		gScene		= NULL;
+    static PxMaterial*		        		gMaterial	= NULL;
+    static PxPvd*			            		gPvd = NULL;
+  
+    static Snippets::Camera* sCamera;
+
+    static void stub() {}
+
+    static void renderCallback()
+    {
+      // stepPhysics(true);
+      gScene->simulate(1.0f/60.0f);
+      gScene->fetchResults(true);
+
+      Snippets::startRender(sCamera);
+
+      PxScene* scene;
+      PxGetPhysics().getScenes(&scene,1);
+      PxU32 nbActors = scene->getNbActors(PxActorTypeFlag::eRIGID_DYNAMIC | PxActorTypeFlag::eRIGID_STATIC);
+      if(nbActors)
+      {
+        std::vector<PxRigidActor*> actors(nbActors);
+        scene->getActors(PxActorTypeFlag::eRIGID_DYNAMIC | PxActorTypeFlag::eRIGID_STATIC, reinterpret_cast<PxActor**>(&actors[0]), nbActors);
+        Snippets::renderActors(&actors[0], static_cast<PxU32>(actors.size()), true);
+      }
+
+      Snippets::finishRender();
+    }
+
+    static void cleanupPhysics(bool /*interactive*/)
+    {
+      PX_RELEASE(gScene);
+      PX_RELEASE(gDispatcher);
+      PX_RELEASE(gPhysics);
+      if(gPvd)
+      {
+        PxPvdTransport* transport = gPvd->getTransport();
+        gPvd->release();	gPvd = NULL;
+        PX_RELEASE(transport);
+      }
+      PX_RELEASE(gFoundation);
+      
+      printf("SnippetHelloWorld done.\n");
+    }
+
+    static void exitCallback(void)
+    {
+      delete sCamera;
+      cleanupPhysics(true);
+    }
+
+    static PxRigidDynamic* createDynamic(const PxTransform& t, const PxGeometry& geometry, const PxVec3& velocity=PxVec3(0))
+    {
+      PxRigidDynamic* dynamic = PxCreateDynamic(*gPhysics, t, geometry, *gMaterial, 10.0f);
+      dynamic->setAngularDamping(0.5f);
+      dynamic->setLinearVelocity(velocity);
+      gScene->addActor(*dynamic);
+      return dynamic;
+    }
+
+    static void createStack(const PxTransform& t, PxU32 size, PxReal halfExtent)
+    {
+      PxShape* shape = gPhysics->createShape(PxBoxGeometry(halfExtent, halfExtent, halfExtent), *gMaterial);
+      for(PxU32 i=0; i<size;i++)
+      {
+        for(PxU32 j=0;j<size-i;j++)
+        {
+          PxTransform localTm(PxVec3(PxReal(j*2) - PxReal(size-i), PxReal(i*2+1), 0) * halfExtent);
+          PxRigidDynamic* body = gPhysics->createRigidDynamic(t.transform(localTm));
+          body->attachShape(*shape);
+          PxRigidBodyExt::updateMassAndInertia(*body, 10.0f);
+          gScene->addActor(*body);
+        }
+      }
+      shape->release();
+    }
+
+  static void keyPress(unsigned char key, const PxTransform& camera)
+  {
+
+  }
+
+  =}
+
+  output initalized: void
+  input quit: void
+
+  state prompt_time: {= reactor::TimePoint =} = {= reactor::TimePoint::min() =}
+  state count: unsigned = 0
+  state thread: std::thread
+
+  state window_created: bool = false
+
+  timer step_size(0, 16ms)
+
+  state stackZ: float = 10
+  input new_stack: void
+  input fire: void
+
+  physical action keyboard_input: {=unsigned char=}
+
+  reaction(startup) -> initalized, keyboard_input {=
+
+    sCamera = new Snippets::Camera(PxVec3(50.0f, 50.0f, 50.0f), PxVec3(-0.6f,-0.2f,-0.7f));
+
+    gFoundation = PxCreateFoundation(PX_PHYSICS_VERSION, gAllocator, gErrorCallback);
+
+    gPvd = PxCreatePvd(*gFoundation);
+    PxPvdTransport* transport = PxDefaultPvdSocketTransportCreate(PVD_HOST, 5425, 10);
+    gPvd->connect(*transport,PxPvdInstrumentationFlag::eALL);
+
+    gPhysics = PxCreatePhysics(PX_PHYSICS_VERSION, *gFoundation, PxTolerancesScale(),true,gPvd);
+
+    PxSceneDesc sceneDesc(gPhysics->getTolerancesScale());
+    sceneDesc.gravity = PxVec3(0.0f, -9.81f, 0.0f);
+    gDispatcher = PxDefaultCpuDispatcherCreate(2);
+    sceneDesc.cpuDispatcher	= gDispatcher;
+    sceneDesc.filterShader	= PxDefaultSimulationFilterShader;
+    gScene = gPhysics->createScene(sceneDesc);
+
+    PxPvdSceneClient* pvdClient = gScene->getScenePvdClient();
+    if(pvdClient)
+    {
+      pvdClient->setScenePvdFlag(PxPvdSceneFlag::eTRANSMIT_CONSTRAINTS, true);
+      pvdClient->setScenePvdFlag(PxPvdSceneFlag::eTRANSMIT_CONTACTS, true);
+      pvdClient->setScenePvdFlag(PxPvdSceneFlag::eTRANSMIT_SCENEQUERIES, true);
+    }
+    gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.6f);
+
+    PxRigidStatic* groundPlane = PxCreatePlane(*gPhysics, PxPlane(0,1,0,0), *gMaterial);
+    gScene->addActor(*groundPlane);
+
+    for(PxU32 i=0;i<5;i++)
+      createStack(PxTransform(PxVec3(0,0,stackZ-=10.0f)), 10, 2.0f);
+
+    thread = std::thread([&]{
+      Snippets::setupDefault("PhysX Snippet HelloWorld", sCamera, keyPress, renderCallback, exitCallback);
+      glutMainLoop();
+    });
+
+    // glutMainLoop();
+    // request the first prompt
+    initalized.set();
+  =}
+
+  reaction(new_stack) {=
+    createStack(PxTransform(PxVec3(0,0,stackZ-=10.0f)), 10, 2.0f);
+  =}
+
+  reaction(fire) {=
+    PxTransform camera{};
+    createDynamic(camera, PxSphereGeometry(3.0f), camera.rotate(PxVec3(0,0,-1))*200);
+  =}
+
+  reaction(step_size) {=
+    // if (window_created)
+    // {
+    //   std::cout << "Logical time is: " << get_logical_time() << std::endl;
+    //   renderCallback();
+    // }
+
+    // gScene->simulate(1.0f/60.0f);
+    // gScene->fetchResults(true);
+  =}
+
+  reaction(quit) {=
+    environment()->sync_shutdown();
+  =}
+
+  reaction(shutdown) {=
+    PX_RELEASE(gScene);
+    PX_RELEASE(gDispatcher);
+    PX_RELEASE(gPhysics);
+    if(gPvd)
+    {
+      PxPvdTransport* transport = gPvd->getTransport();
+      gPvd->release();	gPvd = NULL;
+      PX_RELEASE(transport);
+    }
+    PX_RELEASE(gFoundation);
+    
+    printf("SnippetHelloWorld done.\n");
+  =}
+}  
+
+reactor KeyBoard {
+
+  state thread: std::thread
+  state terminate: std::atomic<bool> = false
+  physical action keyboard_input: char
+
+  output fire: void
+  output quit: void
+  output add_cube: void
+
+  // reaction(startup) -> keyboard_input {=
+  //   // Start the thread that listens for keyboard input.
+  //   thread = std::thread([&] () {
+  //     int c{0};
+  //     while(!terminate.load()) {
+  //       c = getchar();
+  //       keyboard_input.schedule(c);
+  //     }
+  //   });
+  // =}
+
+  reaction(keyboard_input) -> fire, quit, add_cube {=
+    char key = *keyboard_input.get();
+    if(key == '\n') {
+      fire.set();
+    } 
+    else if(key == 'n') {
+      add_cube.set();
+    } else if (key == EOF) {
+      quit.set();
+    }
+  =}
+
+  reaction(shutdown) {=
+    terminate.store(true);
+    thread.join();
+  =}
+}
+
+main reactor {
+    physx = new PhysxDriver()
+    controller = new KeyBoard()
+
+    controller.fire -> physx.fire
+    controller.quit -> physx.quit
+    controller.add_cube -> physx.new_stack
+}
